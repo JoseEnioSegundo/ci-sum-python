@@ -1,4 +1,4 @@
-name: ci-python
+name: ci-cd-python
 
 on:
   push:
@@ -21,9 +21,12 @@ jobs:
 
       - run: pytest
 
-  build:
+  build-and-push:
     needs: tests
     runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    outputs:
+      image_tag: ${{ steps.meta.outputs.image_tag }}
     steps:
       - uses: actions/checkout@v4
 
@@ -39,8 +42,45 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Set metadata
+        id: meta
+        run: echo "image_tag=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
       - name: Build e Push
         uses: docker/build-push-action@v6
         with:
           push: true
-          tags: josesegundo/ci-sum-python:latest
+          tags: |
+            josesegundo/ci-sum-python:latest
+            josesegundo/ci-sum-python:${{ steps.meta.outputs.image_tag }}
+
+  update-gitops:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    steps:
+      - name: Checkout GitOps repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.GITOPS_REPO }}
+          token: ${{ secrets.GITOPS_TOKEN }}
+          path: gitops
+
+      - name: Setup Kustomize
+        uses: imranismail/setup-kustomize@v2
+
+      - name: Update image tag
+        run: |
+          cd gitops/k8s
+          kustomize edit set image \
+            josesegundo/ci-sum-python=\
+            josesegundo/ci-sum-python:${{ needs.build-and-push.outputs.image_tag }}
+
+      - name: Commit and push
+        run: |
+          cd gitops
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add .
+          git commit -m "chore: update image tag to ${{ needs.build-and-push.outputs.image_tag }}" || echo "No changes to commit"
+          git push
