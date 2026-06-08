@@ -9,7 +9,7 @@ def sum_values(a: int, b: int) -> int:
 
 @app.get("/")
 def read_root():
-    return {"message": "API de soma funcionando teste 3.0.0"}
+    return {"message": "API de soma funcionando teste 2.0"}
 
 
 @app.get("/sum/{a}/{b}")
